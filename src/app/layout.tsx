@@ -3,6 +3,7 @@ import { DM_Sans, Lora } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import Header from "@/components/Header";
+import { ClerkProvider  } from "@clerk/nextjs";
 
 
 const lora = Lora({
@@ -32,6 +33,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    <ClerkProvider>
     <html
       lang="en"
       suppressHydrationWarning
@@ -48,5 +50,6 @@ export default function RootLayout({
           </ThemeProvider>
           </body>
     </html>
+    </ClerkProvider>
   );
 }
