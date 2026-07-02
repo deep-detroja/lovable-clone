@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Zap } from 'lucide-react';
+import { ArrowRight, Ghost, Zap } from 'lucide-react';
 import { SignInButton,SignUpButton,Show,UserButton } from '@clerk/nextjs';
+import { Button } from "./ui/button";
 
 const Header = () => {
   return (
@@ -55,11 +56,16 @@ const Header = () => {
             
             <div>
             <Show when="signed-out">
-              <SignInButton mode='modal' />
+              <SignInButton mode='modal'>
+                <Button  size="sm" className="text-[15px] text-white bg-black font-medium transition-colors hover:text-white/80">
+                Sign in
+                </Button>
+              </SignInButton>
               <SignUpButton mode='modal'>
-                <button className="mx-5  text-white/90  hover:text-white/50 text-[15px] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 cursor-pointer">
-                  Sign Up
-                </button>
+                <Button  size="sm" className="h-8 rounded-full font-semibold active:scale-95 px-4 pt-0.5">
+                  Get Started
+                  <ArrowRight className="h-3 w-3 opacity-70"/>
+                </Button>
               </SignUpButton>
             </Show>
             
