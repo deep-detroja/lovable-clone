@@ -1,0 +1,291 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// USER
+
+model User {
+  id String @id @default(uuid()) 
+  name String? // User's display name, e.g. name received from Google.
+  username String? @unique // Optional application username.
+  email String @unique
+  emailVerified Boolean @default(false)
+  image String? 
+  passwordHash String? 
+
+  createdAt DateTime @default(now()) 
+  updatedAt DateTime @updatedAt // Automatically updated timestamp.
+
+  accounts Account[] // OAuth/provider accounts belonging to this user.
+  sessions Session[] // Active authentication sessions belonging to this user.
+  projects Project[] // Projects created by this user.
+
+  @@index([email]) // Makes email lookups efficient.
+}
+
+
+// ACCOUNT
+
+model Account {
+  id String @id @default(uuid()) 
+  userId String 
+  provider String 
+  providerAccountId String // Unique user ID provided by the authentication provider.
+  accessToken String? @db.Text // OAuth access token when applicable.
+  refreshToken String? @db.Text // OAuth refresh token when applicable.
+  expiresAt DateTime? // OAuth access token expiration time.
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // Relation to the user.
+
+  createdAt DateTime @default(now()) // Account creation timestamp.
+  updatedAt DateTime @updatedAt // Automatically updated timestamp.
+
+  @@unique([provider, providerAccountId]) // Prevents the same provider account from being linked twice.
+  @@index([userId]) // Makes user → accounts lookup efficient.
+}
+
+
+// SESSION
+
+
+model Session {
+  id String @id @default(uuid()) 
+  userId String 
+  token String @unique 
+  expiresAt DateTime 
+  ipAddress String? // IP address associated with the session.
+  userAgent String? // Browser/device user-agent information.
+
+  createdAt DateTime @default(now()) // Session creation timestamp.
+  updatedAt DateTime @updatedAt // Automatically updated timestamp.
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // Relation to the user.
+
+  @@index([userId]) // Makes user → sessions lookup efficient.
+  @@index([expiresAt]) // Makes expired-session cleanup efficient.
+}
+
+
+// PROJECT
+
+model Project {
+  id String @id @default(uuid()) 
+  userId String 
+  title String // Human-readable project name.
+  initialPrompt String @db.Text 
+  sandboxId String? 
+  previewUrl String? // URL where the generated application can be previewed.
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // Relation to the project owner.
+
+  projectFiles ProjectFile[] // Source-code files belonging to this project.
+  conversations Conversation[] // Conversations belonging to this project.
+  agentRuns AgentRun[] // AI agent executions belonging to this project.
+  usageRecords UsageRecord[] // AI usage records belonging to this project.
+
+  createdAt DateTime @default(now()) // Project creation timestamp.
+  updatedAt DateTime @updatedAt // Automatically updated when the project changes.
+
+  @@index([userId]) // Makes user → projects lookup efficient.
+  @@index([userId, createdAt]) // Efficiently retrieves a user's projects chronologically.
+}
+
+
+// PROJECT FILE
+
+model ProjectFile {
+  id String @id @default(uuid()) 
+  projectId String // ID of the project this file belongs to.
+  path String // File path inside the generated project, e.g. "app/page.tsx".
+  content String @db.Text // Complete contents of the file.
+  language String? // Programming language or file type.
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade) // Relation to the project.
+
+  createdAt DateTime @default(now()) // File creation timestamp.
+  updatedAt DateTime @updatedAt // File modification timestamp.
+
+  @@unique([projectId, path]) // A project cannot contain two files with the same path.
+  @@index([projectId]) // Makes project → files lookup efficient.
+}
+
+
+// CONVERSATION
+
+model Conversation {
+  id String @id @default(uuid()) 
+  projectId String               
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade) // Relation to the project.
+
+  messages Message[] // Messages belonging to this conversation.
+
+  agentRuns AgentRun[] // Agent runs triggered from this conversation.
+
+  createdAt DateTime @default(now()) // Conversation creation timestamp.
+  updatedAt DateTime @updatedAt // Automatically updated when the conversation changes.
+
+  @@index([projectId]) // Makes project → conversations lookup efficient.
+}
+
+
+// MESSAGE
+
+model Message {
+  id String @id @default(uuid()) 
+  conversationId String 
+  role MessageRole // Entity that produced the message.
+  content String @db.Text // Actual message content.
+  metadata Json? // Optional metadata such as model, UI information, or agent information.
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade) // Relation to the conversation.
+
+  createdAt DateTime @default(now()) // Message creation timestamp.
+
+  @@index([conversationId, createdAt]) // Efficient chronological message retrieval.
+}
+
+
+// AGENT RUN
+
+model AgentRun {
+  id String @id @default(uuid()) // Unique identifier for one complete agent execution.
+  projectId String // ID of the project being modified.
+  conversationId String? // Optional conversation that triggered this agent run.
+  goal String @db.Text // High-level objective given to the agent.
+  status AgentRunStatus @default(PENDING) // Current lifecycle state of the agent run.
+  result String? @db.Text // Final result produced by the agent.
+  error String? @db.Text // Error information if the run fails.
+  metadata Json? // Orchestration configuration, model information, retry data, etc.
+
+  startedAt DateTime? // Time when execution started.
+  completedAt DateTime? // Time when execution completed.
+  createdAt DateTime @default(now()) // Agent run creation timestamp.
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade) // Relation to the project.
+
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull) // Optional relation to the triggering conversation.
+
+  steps AgentStep[] // Individual orchestration steps inside this run.
+  usageRecords UsageRecord[] // AI model usage generated by this run.
+
+  @@index([projectId, createdAt]) // Efficient project → agent-run lookup.
+  @@index([conversationId]) // Efficient conversation → agent-run lookup.
+  @@index([status]) // Efficient lookup of running/failed/completed runs.
+}
+
+
+// AGENT STEP
+
+model AgentStep {
+  id String @id @default(uuid()) // Unique identifier for one orchestration step.
+  runId String // ID of the AgentRun containing this step.
+  parentStepId String? // Optional parent step for hierarchical agent orchestration.
+  agentType String // Type of agent performing this step, e.g. planner, coder, reviewer, tester, debugger.
+
+  status AgentStepStatus @default(PENDING) // Current lifecycle state of this step.
+
+  input Json? // Structured input provided to the agent step.
+  output Json? // Structured output produced by the agent step.
+  attempt Int @default(1) // Number of execution attempts for retry/recovery.
+  metadata Json? // Additional step-level orchestration information.
+
+  startedAt DateTime? // Time when this step started.
+  completedAt DateTime? // Time when this step completed.
+  createdAt DateTime @default(now()) // Step creation timestamp.
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade) // Relation to the parent agent run.
+
+  parentStep AgentStep? @relation("StepHierarchy", fields: [parentStepId], references: [id], onDelete: SetNull) // Parent step for hierarchical orchestration.
+  childSteps AgentStep[] @relation("StepHierarchy") // Child steps created by this orchestration step.
+  toolCalls ToolCall[] // Tool calls executed during this step.
+
+  @@index([runId, createdAt]) // Efficient run → steps lookup.
+  @@index([parentStepId]) // Efficient parent → child step lookup.
+}
+
+
+// TOOL CALL
+
+model ToolCall {
+  id String @id @default(uuid()) // Unique identifier for the tool execution.
+  stepId String // ID of the agent step that executed this tool.
+  toolName String // Tool being executed, e.g. read_file, write_file, edit_file, run_command, run_tests.
+
+  input Json? // Arguments passed to the tool.
+  output Json? // Result returned by the tool.
+  status ToolCallStatus @default(PENDING) // Current lifecycle state of the tool execution.
+  error String? @db.Text // Error information if the tool execution fails.
+
+  startedAt DateTime? // Tool execution start time.
+  completedAt DateTime? // Tool execution completion time.
+  createdAt DateTime @default(now()) // Tool call creation timestamp.
+
+  step AgentStep @relation(fields: [stepId], references: [id], onDelete: Cascade) // Relation to the agent step.
+
+  @@index([stepId, createdAt]) // Efficient step → tool calls lookup.
+  @@index([toolName]) // Useful for tool-level analytics.
+}
+
+
+// USAGE RECORD
+
+model UsageRecord {
+  id String @id @default(uuid()) // Unique identifier for the AI usage record.
+  projectId String // ID of the project associated with this usage.
+  runId String? // Optional agent run responsible for this usage.
+  model String // AI model used for this operation.
+  inputTokens Int @default(0) // Number of input tokens consumed.
+  outputTokens Int @default(0) // Number of output tokens generated.
+  latencyMs Int? // Model-call latency in milliseconds.
+
+  estimatedCost Decimal? @db.Decimal(12, 6) // Estimated cost of the AI operation.
+  metadata Json? // Additional model/provider information.
+
+  createdAt DateTime @default(now()) // Usage record creation timestamp.
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade) // Relation to the project.
+
+  run AgentRun? @relation(fields: [runId], references: [id], onDelete: SetNull) // Optional relation to the agent run.
+
+  @@index([projectId, createdAt]) // Efficient project-level usage analytics.
+  @@index([runId]) // Efficient run-level usage analytics.
+}
+
+
+// ENUMS
+
+enum MessageRole {
+  USER // Message produced by the user.
+  ASSISTANT // Message produced by the AI assistant.
+  SYSTEM // System-level instruction or message.
+}
+
+enum AgentRunStatus {
+  PENDING // Agent run has been created but has not started.
+  RUNNING // Agent run is currently executing.
+  COMPLETED // Agent run completed successfully.
+  FAILED // Agent run failed.
+  CANCELED // Agent run was canceled.
+}
+
+enum AgentStepStatus {
+  PENDING // Agent step has been created but has not started.
+  RUNNING // Agent step is currently executing.
+  COMPLETED // Agent step completed successfully.
+  FAILED // Agent step failed.
+  CANCELED // Agent step was canceled.
+  RETRYING // Agent step is being retried.
+}
+
+enum ToolCallStatus {
+  PENDING // Tool call has been created but has not started.
+  RUNNING // Tool is currently executing.
+  COMPLETED // Tool execution completed successfully.
+  FAILED // Tool execution failed.
+  CANCELED // Tool execution was canceled.
+}
